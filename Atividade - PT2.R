@@ -73,3 +73,24 @@ graf1 = ggplot(base, aes(x = tempo_preso, y = score_periculosidade, color = sexo
 
 correlacao_tempo_periculosidade = cor(x = base$tempo_preso, y = base$score_periculosidade)
 
+estatisticas = data.frame(
+  Variavel = c("score_periculosidade", "idade", "tempo_preso"),
+  Variancia = c(
+    var(base$score_periculosidade, na.rm = TRUE),
+    var(base$idade, na.rm = TRUE),
+    var(base$tempo_preso, na.rm = TRUE)
+  ),
+  Desvio_Padrao = c(
+    sd(base$score_periculosidade, na.rm = TRUE),
+    sd(base$idade, na.rm = TRUE),
+    sd(base$tempo_preso, na.rm = TRUE)
+  ),
+  Amplitude = c(
+    max(base$score_periculosidade, na.rm = TRUE) - min(base$score_periculosidade, na.rm = TRUE),
+    max(base$idade, na.rm = TRUE) - min(base$idade, na.rm = TRUE),
+    max(base$tempo_preso, na.rm = TRUE) - min(base$tempo_preso, na.rm = TRUE)
+  )
+)
+
+estatisticas
+
