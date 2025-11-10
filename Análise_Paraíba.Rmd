@@ -1,0 +1,581 @@
+---
+title: "Estudo de Comparação de Métodos de Captação de Material Particulado PM2.5"
+author: "Rafael Marques Ribeiro"
+date: "2025-10-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE, fig.align='center')
+```
+
+```{r}
+setwd("C:/Users/Usuário/OneDrive/Documentos/Prática Estatística/Prática 2/Individual")
+
+rmv.cha <- function(x) iconv(x, to = "ASCII//TRANSLIT")
+
+library(sf)
+library(lubridate)
+library(ggplot2)
+library(dplyr)
+library(reshape2)
+library(ggpubr)
+library(GGally)
+library(readxl)
+library(tidyverse)
+
+dadoscams2023 <- read.csv2("daily_pm25_all_regions_2023.csv")
+dadoscams2022 <- read.csv2("daily_pm25_all_regions_2022.csv")
+
+dadosdon2023 <- read_excel("Donkelar_dados_completos_consolidado_2023.xlsx")  
+dadosdon2022 <- read_excel("Donkelar_dados_completos_consolidado_2022.xlsx")  
+
+shapefile_pb <- st_read("PB_Municipios_2024.shp", quiet=TRUE)
+
+```
+
+<br><br>
+
+## **Introdução**
+
+<br>
+
+Este estudo realiza uma análise comparativa da qualidade do ar no estado da Paraíba, focando nas concentrações de material particulado fino (PM2.5) durante os anos de 2022 e 2023. A investigação utiliza dados provenientes de duas fontes distintas: o sistema CAMS (Copernicus Atmosphere Monitoring Service), que fornece observações diárias, e a base Donkelar, que disponibiliza dados já agregados em médias mensais. A análise emprega boxplots para visualizar a distribuição mensal dos dados, permitindo identificar padrões sazonais, variações e a presença de valores atípicos. Complementarmente, as análises de frequência por categorias de impacto são utilizadas para contextualizar esses outliers, demonstrando que mesmo valores extremos podem permanecer dentro de faixas consideradas satisfatórias quando a maior parte dos dados se concentra em níveis baixos de poluição.
+
+<br><br>
+
+## **Metodologia**
+
+<br>
+
+A metodologia adotada compreende quatro etapas principais: (1) comparação entre métodos de mensuração através de boxplots mensais para 2022 e 2023; (2) análise de frequência por categorias de impacto (0-5 µg/m³ - Ideal, 5-10 - Baixo, 10-15 - Moderado, 15-20 - Alto, >20 - Muito Alto); (3) mapeamento espacial das médias anuais com escala unificada (0-20 µg/m³); e (4) análise das diferenças interanuais (2023-2022) com representação em escala divergente (-5 a +5 µg/m³). Todas as análises foram realizadas de forma comparativa entre os métodos CAMS e Donkelar, considerando a natureza distinta de suas bases de dados.
+
+<br><br><br>
+```{r}
+
+dados_cams_2022_paraiba <- dadoscams2022 |> 
+  select(Date, starts_with("ID_25")) |> 
+  rename_with(~ str_remove(., "ID_"), everything()) |> 
+  pivot_longer(
+    cols = -Date,
+    names_to = "ID",
+    values_to = "PM25"
+  ) |> 
+  mutate(
+    Date = as.Date(Date),
+    Mes = month(Date),
+    Ano = 2022,
+    Fonte = "CAMS"
+  ) |> 
+  group_by(ID, Mes, Ano, Fonte) |> 
+  summarise(
+    Media_PM25 = mean(PM25, na.rm = TRUE),
+    Mediana_PM25 = median(PM25, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+dados_cams_2023_paraiba <- dadoscams2023 |> 
+  select(Date, starts_with("ID_25")) |> 
+  rename_with(~ str_remove(., "ID_"), everything()) |> 
+  pivot_longer(
+    cols = -Date,
+    names_to = "ID",
+    values_to = "PM25"
+  ) |> 
+  mutate(
+    Date = as.Date(Date),
+    Mes = month(Date),
+    Ano = 2023,
+    Fonte = "CAMS"
+  ) |> 
+  group_by(ID, Mes, Ano, Fonte) |> 
+  summarise(
+    Media_PM25 = mean(PM25, na.rm = TRUE),
+    Mediana_PM25 = median(PM25, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+dados_donkelar_2022_paraiba <- dadosdon2022 |> 
+  filter(SIGLA_UF == "PB") |> 
+  mutate(
+    ID = as.character(CD_MUN),
+    Mes = Mes,
+    Ano = 2022,
+    Fonte = "Donkelar",
+    Mediana_PM25 = Media_PM25
+  ) |> 
+  select(ID, Mes, Ano, Fonte, Media_PM25, Mediana_PM25)
+
+dados_donkelar_2023_paraiba <- dadosdon2023 |> 
+  filter(SIGLA_UF == "25") |> 
+  mutate(
+    ID = as.character(CD_MUN),
+    Mes = Mes,
+    Ano = 2023,
+    Fonte = "Donkelar",
+    Mediana_PM25 = Media_PM25
+  ) |> 
+  select(ID, Mes, Ano, Fonte, Media_PM25, Mediana_PM25)
+
+dados_comparacao_completa <- bind_rows(
+  dados_cams_2022_paraiba,
+  dados_cams_2023_paraiba,
+  dados_donkelar_2022_paraiba,
+  dados_donkelar_2023_paraiba
+) |> 
+  mutate(
+    Mes = factor(Mes, levels = 1:12, labels = month.abb),
+    Fonte = factor(Fonte, levels = c("CAMS", "Donkelar"))
+  )
+```
+
+
+
+```{r, fig.width=9, fig.height=6}
+ggplot(dados_comparacao_completa |> filter(Ano == 2022), 
+       aes(x = Mes, y = Media_PM25, fill = Fonte)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  labs(title = "Comparação de Métodos: CAMS vs Donkelar (2022)",
+       x = "Mês",
+       y = "Média de PM2.5 (µg/m³)") +
+  theme_minimal() +
+  scale_fill_manual(values = c("CAMS" = "steelblue", "Donkelar" = "pink"))
+```
+
+<br><br>
+
+```{r, fig.width=9, fig.height=6}
+ggplot(dados_comparacao_completa |> filter(Ano == 2023), 
+       aes(x = Mes, y = Media_PM25, fill = Fonte)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  labs(title = "Comparação de Métodos: CAMS vs Donkelar (2023)",
+       x = "Mês",
+       y = "Média de PM2.5 (µg/m³)") +
+  theme_minimal() +
+  scale_fill_manual(values = c("CAMS" = "steelblue", "Donkelar" = "pink"))
+```
+
+<br><br><br>
+
+## **Comparação entre Métodos**
+
+<br>
+Os boxplots revelaram distribuições mensais bastante similares entre os métodos, com exceção notável de fevereiro de 2022, onde o CAMS registrou valores significativamente mais elevados. As análises de frequência demonstraram que a Donkelar apresenta maior sensibilidade a níveis elevados de PM2.5, com proporção mais expressiva de registros nas categorias Moderado, Alto e Muito Alto em comparação ao CAMS. Esta tendência foi posteriormente corroborada pelos mapas de média anual, que evidenciaram valores sistematicamente mais altos na base Donkelar em diversas regiões do estado.
+
+<br><br><br>
+
+```{r, fig.width=10}
+
+dados_cams_2022_mensal <- dadoscams2022 |> 
+  select(Date, starts_with("ID_25")) |> 
+  rename_with(~ str_remove(., "ID_"), everything()) |> 
+  pivot_longer(
+    cols = -Date,
+    names_to = "ID",
+    values_to = "PM25"
+  ) |> 
+  mutate(
+    Date = as.Date(Date),
+    Mes = month(Date),
+    Ano = 2022,
+    Fonte = "CAMS"
+  ) |> 
+  group_by(ID, Mes, Ano, Fonte) |> 
+  summarise(
+    Media_PM25 = mean(PM25, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+dados_cams_2023_mensal <- dadoscams2023 |> 
+  select(Date, starts_with("ID_25")) |> 
+  rename_with(~ str_remove(., "ID_"), everything()) |> 
+  pivot_longer(
+    cols = -Date,
+    names_to = "ID",
+    values_to = "PM25"
+  ) |> 
+  mutate(
+    Date = as.Date(Date),
+    Mes = month(Date),
+    Ano = 2023,
+    Fonte = "CAMS"
+  ) |> 
+  group_by(ID, Mes, Ano, Fonte) |> 
+  summarise(
+    Media_PM25 = mean(PM25, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+classificar_impacto <- function(pm25) {
+  case_when(
+    pm25 <= 5 ~ "Ideal (0-5)",
+    pm25 <= 10 ~ "Baixo (5-10)",
+    pm25 <= 15 ~ "Moderado (10-15)",
+    pm25 <= 20 ~ "Alto (15-20)",
+    TRUE ~ "Muito Alto (>20)"
+  )
+}
+
+freq_cams_2022 <- dados_cams_2022_mensal |>
+  mutate(Categoria = classificar_impacto(Media_PM25)) |>
+  count(Categoria) |>
+  mutate(Frequencia_Relativa = n / sum(n) * 100,
+         Fonte = "CAMS")
+
+freq_donkelar_2022 <- dados_comparacao_completa |>
+  filter(Ano == 2022, Fonte == "Donkelar") |>
+  mutate(Categoria = classificar_impacto(Media_PM25)) |>
+  count(Categoria) |>
+  mutate(Frequencia_Relativa = n / sum(n) * 100,
+         Fonte = "Donkelar")
+
+freq_2022 <- bind_rows(freq_cams_2022, freq_donkelar_2022) |>
+  mutate(Categoria = factor(Categoria, 
+                            levels = c("Ideal (0-5)", "Baixo (5-10)", "Moderado (10-15)", 
+                                       "Alto (15-20)", "Muito Alto (>20)")))
+
+g_abs <- ggplot(freq_2022, aes(x = Categoria, y = n, fill = Fonte)) +
+  geom_col(position = "dodge") +
+  geom_text(aes(label = n), position = position_dodge(0.9), vjust = -0.5, size = 3) +
+  labs(title = "Frequência Absoluta por Impacto - 2022",
+       x = "Categoria", y = "Frequência Absoluta") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+g_rel <- ggplot(freq_2022, aes(x = Categoria, y = Frequencia_Relativa, fill = Fonte)) +
+  geom_col(position = "dodge") +
+  geom_text(aes(label = paste0(round(Frequencia_Relativa, 1), "%")), 
+            position = position_dodge(0.9), vjust = -0.5, size = 3) +
+  labs(title = "Frequência Relativa por Impacto - 2022",
+       x = "Categoria", y = "Frequência Relativa (%)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+library(patchwork)
+g_abs + g_rel
+
+```
+
+<br><br><br>
+
+```{r, fig.width=10}
+freq_cams_2023 <- dados_cams_2023_mensal |>
+  mutate(Categoria = classificar_impacto(Media_PM25)) |>
+  count(Categoria) |>
+  mutate(Frequencia_Relativa = n / sum(n) * 100,
+         Fonte = "CAMS")
+
+freq_donkelar_2023 <- dados_comparacao_completa |>
+  filter(Ano == 2023, Fonte == "Donkelar") |>
+  mutate(Categoria = classificar_impacto(Media_PM25)) |>
+  count(Categoria) |>
+  mutate(Frequencia_Relativa = n / sum(n) * 100,
+         Fonte = "Donkelar")
+
+freq_2023 <- bind_rows(freq_cams_2023, freq_donkelar_2023) |>
+  mutate(Categoria = factor(Categoria, 
+                            levels = c("Ideal (0-5)", "Baixo (5-10)", "Moderado (10-15)", 
+                                       "Alto (15-20)", "Muito Alto (>20)")))
+
+g_abs_2023 <- ggplot(freq_2023, aes(x = Categoria, y = n, fill = Fonte)) +
+  geom_col(position = "dodge") +
+  geom_text(aes(label = n), position = position_dodge(0.9), vjust = -0.5, size = 3) +
+  labs(title = "Frequência Absoluta por Impacto - 2023",
+       x = "Categoria", y = "Frequência Absoluta") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+g_rel_2023 <- ggplot(freq_2023, aes(x = Categoria, y = Frequencia_Relativa, fill = Fonte)) +
+  geom_col(position = "dodge") +
+  geom_text(aes(label = paste0(round(Frequencia_Relativa, 1), "%")), 
+            position = position_dodge(0.9), vjust = -0.5, size = 3) +
+  labs(title = "Frequência Relativa por Impacto - 2023",
+       x = "Categoria", y = "Frequência Relativa (%)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+g_abs_2023 + g_rel_2023
+```
+
+<br><br><br>
+
+## **Análise Espacial**
+
+<br>
+
+Os mapas de média anual permitiram visualizar padrões espaciais consistentes entre os métodos, com maiores concentrações nas regiões metropolitana e em determinadas áreas do interior. A análise das diferenças interanuais revelou cenários distintos: o CAMS registrou aumento generalizado das concentrações em praticamente todo o território paraibano em 2023, enquanto a Donkelar mostrou padrão mais heterogêneo, com elevações concentradas na região metropolitana e reduções pontuais em municípios do interior. Esta disparidade ressalta a importância da consideração conjunta de múltiplas fontes de dados para uma compreensão abrangente da dinâmica espacial da qualidade do ar.
+
+<br><br><br>
+
+```{r, fig.width=10}
+media_anual_cams_2022 <- dados_cams_2022_mensal |>
+  group_by(ID) |>
+  summarise(Media_Anual_PM25 = mean(Media_PM25, na.rm = TRUE)) |>
+  ungroup()
+
+media_anual_donkelar_2022 <- dados_donkelar_2022_paraiba |>
+  group_by(ID) |>
+  summarise(Media_Anual_PM25 = mean(Media_PM25, na.rm = TRUE)) |>
+  ungroup()
+
+mapa_cams_2022 <- shapefile_pb |>
+  left_join(media_anual_cams_2022, by = c("CD_MUN" = "ID"))
+
+mapa_donkelar_2022 <- shapefile_pb |>
+  left_join(media_anual_donkelar_2022, by = c("CD_MUN" = "ID"))
+
+g_cams_2022 <- ggplot(mapa_cams_2022) +
+  geom_sf(aes(fill = Media_Anual_PM25)) +
+  scale_fill_viridis_c(option = "plasma", name = "PM2.5 (µg/m³)", 
+                       limits = c(0, 20), na.value = "grey50") +
+  labs(title = "Média Anual de PM2.5 - CAMS 2022") +
+  theme_minimal()
+
+g_donkelar_2022 <- ggplot(mapa_donkelar_2022) +
+  geom_sf(aes(fill = Media_Anual_PM25)) +
+  scale_fill_viridis_c(option = "plasma", name = "PM2.5 (µg/m³)", 
+                       limits = c(0, 20), na.value = "grey50") +
+  labs(title = "Média Anual de PM2.5 - Donkelar 2022") +
+  theme_minimal()
+
+g_cams_2022 + g_donkelar_2022
+
+media_anual_cams_2023 <- dados_cams_2023_mensal |>
+  group_by(ID) |>
+  summarise(Media_Anual_PM25 = mean(Media_PM25, na.rm = TRUE)) |>
+  ungroup()
+
+media_anual_donkelar_2023 <- dados_donkelar_2023_paraiba |>
+  group_by(ID) |>
+  summarise(Media_Anual_PM25 = mean(Media_PM25, na.rm = TRUE)) |>
+  ungroup()
+
+mapa_cams_2023 <- shapefile_pb |>
+  left_join(media_anual_cams_2023, by = c("CD_MUN" = "ID"))
+
+mapa_donkelar_2023 <- shapefile_pb |>
+  left_join(media_anual_donkelar_2023, by = c("CD_MUN" = "ID"))
+
+g_cams_2023 <- ggplot(mapa_cams_2023) +
+  geom_sf(aes(fill = Media_Anual_PM25)) +
+  scale_fill_viridis_c(option = "plasma", name = "PM2.5 (µg/m³)", 
+                       limits = c(0, 20), na.value = "grey50") +
+  labs(title = "Média Anual de PM2.5 - CAMS 2023") +
+  theme_minimal()
+
+g_donkelar_2023 <- ggplot(mapa_donkelar_2023) +
+  geom_sf(aes(fill = Media_Anual_PM25)) +
+  scale_fill_viridis_c(option = "plasma", name = "PM2.5 (µg/m³)", 
+                       limits = c(0, 20), na.value = "grey50") +
+  labs(title = "Média Anual de PM2.5 - Donkelar 2023") +
+  theme_minimal()
+
+g_cams_2023 + g_donkelar_2023
+
+diferenca_cams <- media_anual_cams_2023 |>
+  rename(Media_2023 = Media_Anual_PM25) |>
+  left_join(media_anual_cams_2022 |> rename(Media_2022 = Media_Anual_PM25), by = "ID") |>
+  mutate(Diferenca = Media_2023 - Media_2022)
+
+mapa_diferenca_cams <- shapefile_pb |>
+  left_join(diferenca_cams, by = c("CD_MUN" = "ID"))
+
+diferenca_donkelar <- media_anual_donkelar_2023 |>
+  rename(Media_2023 = Media_Anual_PM25) |>
+  left_join(media_anual_donkelar_2022 |> rename(Media_2022 = Media_Anual_PM25), by = "ID") |>
+  mutate(Diferenca = Media_2023 - Media_2022)
+
+mapa_diferenca_donkelar <- shapefile_pb |>
+  left_join(diferenca_donkelar, by = c("CD_MUN" = "ID"))
+
+mapa_diff_cams <- ggplot(mapa_diferenca_cams) +
+  geom_sf(aes(fill = Diferenca)) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "orange", 
+                       midpoint = 0, name = "Diferença PM2.5 (µg/m³)",
+                       limits = c(-5, 5), na.value = "grey50") +
+  labs(title = "Diferença Média Anual PM2.5 (CAMS 2023 - 2022)") +
+  theme_minimal()
+
+mapa_diff_donkelar <- ggplot(mapa_diferenca_donkelar) +
+  geom_sf(aes(fill = Diferenca)) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "orange", 
+                       midpoint = 0, name = "Diferença PM2.5 (µg/m³)",
+                       limits = c(-5, 5), na.value = "grey50") +
+  labs(title = "Diferença Média Anual PM2.5 (Donkelar 2023 - 2022)") +
+  theme_minimal()
+
+mapa_diff_cams + mapa_diff_donkelar
+```
+
+<br><br>
+
+A consolidação das análises especiais confirma que, tanto o método CAMS quanto o Donkelar, detectam a ocorrência de valores extremos nas regiões metropolitanas e no Cariri. A análise de dispersão do CAMS, no entanto, evidencia uma variabilidade mais significativa, com dados notavelmente mais espalhados. Já o método Donkelar, embora aponte para as mesmas áreas críticas, apresenta uma dispersão mais contida. Esses extremos provavelmente estão relacionados às condições ambientais do Cariri, uma região de caatinga com solo seco e arenoso.
+
+<br><br>
+
+```{r, fig.width=10}
+
+dados_cams_municipio <- dados_comparacao_completa |> 
+  filter(Fonte == "CAMS") |> 
+  group_by(ID) |> 
+  summarise(Media_Geral = mean(Media_PM25, na.rm = TRUE))
+
+dados_donkelar_municipio <- dados_comparacao_completa |> 
+  filter(Fonte == "Donkelar") |> 
+  group_by(ID) |> 
+  summarise(Media_Geral = mean(Media_PM25, na.rm = TRUE))
+
+ggplot(dados_cams_municipio, aes(x = factor(ID), y = Media_Geral)) +
+  geom_point(color = "blue", size = 2, alpha = 0.7) +
+  labs(title = "Distribuição de Médias de PM2.5 - CAMS (2022-2023)",
+       x = "Município",
+       y = "Média de PM2.5 (µg/m³)") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+ggplot(dados_donkelar_municipio, aes(x = factor(ID), y = Media_Geral)) +
+  geom_point(color = "blue", size = 2, alpha = 0.7) +
+  labs(title = "Distribuição de Médias de PM2.5 - Donkelar (2022-2023)",
+       x = "Município",
+       y = "Média de PM2.5 (µg/m³)") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+```
+
+<br><br>
+
+As análises de correlação entre os métodos revelam uma dinâmica temporal distinta: no ano de 2022, registra-se uma correlação negativa estatisticamente significativa (dado o valor-p baixo), a qual se inverte para uma correlação positiva em 2023. Embora esta inversão possa, a princípio, sugerir uma contradição, ela corrobora, na verdade, a existência de uma diferença fundamental no comportamento dos métodos entre os períodos analisados.
+
+<br><br>
+
+```{r, fig.width=10}
+
+dados_correlacao <- dados_comparacao_completa |> 
+  group_by(ID, Ano, Fonte) |> 
+  summarise(Media_Anual = mean(Media_PM25, na.rm = TRUE), .groups = 'drop') |> 
+  pivot_wider(names_from = Fonte, values_from = Media_Anual) |> 
+  filter(!is.na(CAMS) & !is.na(Donkelar))
+
+correlacao_2022 <- dados_correlacao |> 
+  filter(Ano == 2022) |> 
+  summarise(Correlacao = cor(CAMS, Donkelar, method = "pearson"))
+
+correlacao_2023 <- dados_correlacao |> 
+  filter(Ano == 2023) |> 
+  summarise(Correlacao = cor(CAMS, Donkelar, method = "pearson"))
+
+correlacao_geral <- dados_correlacao |> 
+  summarise(Correlacao = cor(CAMS, Donkelar, method = "pearson"))
+
+ggplot(dados_correlacao, aes(x = CAMS, y = Donkelar)) +
+  geom_point(alpha = 0.6, size = 2) +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  facet_wrap(~ Ano) +
+  labs(title = "Correlação entre Métodos CAMS e Donkelar",
+       subtitle = paste("Pearson 2022:", round(correlacao_2022$Correlacao, 3), 
+                       " | 2023:", round(correlacao_2023$Correlacao, 3),
+                       " | Geral:", round(correlacao_geral$Correlacao, 3)),
+       x = "PM2.5 - CAMS (µg/m³)",
+       y = "PM2.5 - Donkelar (µg/m³)") +
+  theme_minimal() +
+  stat_cor(method = "pearson", label.x.npc = "left", label.y.npc = "top")
+
+```
+
+<br><br>
+
+A verificação da densidade conjunta entre os métodos corrobora a tendência identificada nas análises anteriores. Observa-se que, no ano de 2022, os valores encontram-se nitidamente mais concentrados em patamares inferiores quando comparados à distribuição de 2023. Este padrão serve como evidência adicional para corroborar a hipótese de um crescimento na concentração de partículas no ano de 2023.
+
+<br><br>
+
+```{r, fig.width=10}
+
+correlacao_detalhada <- dados_correlacao |> 
+  group_by(Ano) |> 
+  summarise(
+    Correlacao = cor(CAMS, Donkelar, method = "pearson"),
+    R_Quadrado = cor(CAMS, Donkelar, method = "pearson")^2,
+    Observacoes = n(),
+    .groups = 'drop'
+  )
+
+ggplot(dados_correlacao, aes(x = CAMS, y = Donkelar)) +
+  geom_density_2d_filled(alpha = 0.8, show.legend = TRUE) +
+  geom_point(alpha = 0.3, size = 1) +
+  facet_wrap(~ Ano) +
+  labs(title = "Densidade Conjunta - CAMS vs Donkelar",
+       x = "PM2.5 - CAMS (µg/m³)",
+       y = "PM2.5 - Donkelar (µg/m³)",
+       fill = "Nível") +
+  theme_minimal()
+
+```
+
+<br><br>
+
+A análise de concordância, seguindo a metodologia de Bland-Altman, corrobora as divergências previamente identificadas entre os métodos. O valor-p inferior ao nível de significância estabelecido confirma uma diferença estatisticamente significativa. No entanto, a relevância prática desta discrepância é mitigada pelo viés clinicamente insignificante, quantificado em uma média de diferenças próxima de zero. Ademais, os amplos limites de concordância observados reforçam a substancial variabilidade entre as medições, um padrão que se alinha com as disparidades de dispersão e correlação já documentadas nas análises precedentes.
+
+<br><br>
+
+```{r, fig.width=10}
+dados_ba <- dados_correlacao |> 
+  mutate(
+    Media = (CAMS + Donkelar) / 2,
+    Diferenca = CAMS - Donkelar
+  )
+
+media_diferenca <- mean(dados_ba$Diferenca, na.rm = TRUE)
+sd_diferenca <- sd(dados_ba$Diferenca, na.rm = TRUE)
+limite_superior <- media_diferenca + 1.96 * sd_diferenca
+limite_inferior <- media_diferenca - 1.96 * sd_diferenca
+
+teste_t <- t.test(dados_ba$Diferenca, conf.level = 0.95)
+
+ggplot(dados_ba, aes(x = Media, y = Diferenca)) +
+  geom_point(alpha = 0.6, size = 2, color = "steelblue") +
+  geom_hline(yintercept = media_diferenca, color = "red", linewidth = 1, linetype = "solid") +
+  geom_hline(yintercept = limite_superior, color = "darkred", linewidth = 0.8, linetype = "dashed") +
+  geom_hline(yintercept = limite_inferior, color = "darkred", linewidth = 0.8, linetype = "dashed") +
+  geom_hline(yintercept = 0, color = "gray", linewidth = 0.5, linetype = "dotted") +
+  labs(
+    title = "Gráfico de Bland-Altman: CAMS vs Donkelar",
+    subtitle = paste("Análise de Concordância entre Métodos (2022-2023)"),
+    x = "Média dos dois métodos (µg/m³)",
+    y = "Diferença (CAMS - Donkelar) (µg/m³)"
+  ) +
+  annotate("text", x = Inf, y = media_diferenca, 
+           label = paste("Média =", round(media_diferenca, 3)), 
+           hjust = 1.1, vjust = -0.5, color = "red") +
+  annotate("text", x = Inf, y = limite_superior, 
+           label = paste("+1.96SD =", round(limite_superior, 3)), 
+           hjust = 1.1, vjust = -0.5, color = "darkred") +
+  annotate("text", x = Inf, y = limite_inferior, 
+           label = paste("-1.96SD =", round(limite_inferior, 3)), 
+           hjust = 1.1, vjust = 1.5, color = "darkred") +
+  theme_minimal() +
+  theme(plot.subtitle = element_text(size = 10))
+
+# Medida de concordância
+#     - Coeficiente de concordância intraclasse (função ICC)
+#     - Material de suporte
+# 
+# Isso define magnitude das diferenças.
+# Buscar valores kappa e correlação próximos de 1
+# Não rejeitar hipótese nula
+
+
+```
+
+### **Conclusão**
+
+Este estudo permitiu uma caracterização abrangente e crítica da qualidade do ar na Paraíba entre 2022 e 2023, a partir da análise comparativa dos métodos CAMS e Donkelar. Os resultados demonstram que, embora ambos os métodos capturem padrões espaciais e sazonais similares, com concentrações mais elevadas nas regiões metropolitana e do Cariri, existem discrepâncias sistemáticas e metodologicamente relevantes entre eles.
+
+A análise de dispersão e os mapas de média anual evidenciaram que a base Donkelar tende a registrar concentrações de PM2,5 sistematicamente superiores às do CAMS, além de exibir maior sensibilidade a valores nas categorias mais elevadas. Esta divergência foi quantificada e confirmada pelas análises estatísticas subsequentes, a inversão no sinal da correlação interanual e os amplos limites de concordância na análise de Bland Altman atestam uma diferença fundamental no comportamento dos conjuntos de dados. Contudo, é crucial ressaltar que, apesar da diferença ser estatisticamente significativa, o viés médio entre os métodos é clinicamente insignificante, o que sugere que, para análises de tendência e de distribuição espacial, as fontes podem ser consideradas de forma complementar.
+
+A hipótese de um crescimento generalizado na concentração de partículas em 2023, inicialmente indicada pelos boxplots e mapas de diferença, foi consistentemente reforçada pela análise de densidade conjunta. Dessa forma, conclui se que a escolha do método influencia a magnitude absoluta reportada, mas não invalida as principais tendências temporais e espaciais identificadas. A utilização conjunta de múltiplas fontes, portanto, revela se uma estratégia robusta, fornecendo uma visão mais nuances e confiável da dinâmica da qualidade do ar no estado, fundamental para o embasamento de futuras políticas de monitoramento e controle ambiental.
+
+
+
